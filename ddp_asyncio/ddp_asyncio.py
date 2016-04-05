@@ -53,11 +53,11 @@ class DDPClient:
         self.callcache = []
         
     @asyncio.coroutine
-    def connect(self):
+    def connect(self, **kwargs):
         c = False
         while not c:
             try:
-                self.websocket = yield from websockets.connect(self.address)
+                self.websocket = yield from websockets.connect(self.address, **kwargs)
                 c = self.websocket.open
                 print(c)
             except ConnectionRefusedError:
@@ -142,7 +142,10 @@ class DDPClient:
                 sub = self.subs.get(msg['collection'])
                 if sub:
                     if msg.get('fields'):
-                        sub.data[msg['id']].update(msg['fields'])
+                        if msg['id'] in sub.data:
+                            sub.data[msg['id']].update(msg['fields'])
+                        else:
+                            sub.data[msg['id']] = msg['fields']
                         yield from sub.changed_cb(sub, msg['id'], msg['fields'])
                     elif msg.get('cleared'):
                         for key in msg['cleared']:
