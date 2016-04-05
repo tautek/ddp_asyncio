@@ -42,10 +42,11 @@ class MethodCall:
             yield from self.callback(result)
                 
 class DDPClient:
-    def __init__(self, address):
+    def __init__(self, address, connect_cb=None):
         self.connected = False
         self.address = address
         self.session = None
+        self.connect_cb = connect_cb
         
         self.subs = {}
         self.calls = {}
@@ -59,7 +60,6 @@ class DDPClient:
             try:
                 self.websocket = yield from websockets.connect(self.address, **kwargs)
                 c = self.websocket.open
-                print(c)
             except ConnectionRefusedError:
                 yield from asyncio.sleep(1)
         
@@ -70,6 +70,8 @@ class DDPClient:
         asyncio.async(self.recvloop())
         while not self.connected:
             yield from asyncio.sleep(0.1)
+        if self.connect_cb is not None:
+            yield from self.connect_cb()
         
     @asyncio.coroutine
     def subscribe(self, name, *params, ready_cb = noop,
@@ -119,13 +121,13 @@ class DDPClient:
             msg = yield from self.websocket.recv()
             if not msg: continue
             msg = ejson.loads(msg)
-
             if msg.get('msg') == 'connected':
                 self.connected = True
                 self.session = msg['session']
                 
             elif msg.get('msg') == 'ping':
-                yield from self.websocket.send(ejson.dumps({'msg': 'pong', 'id': msg.get('id')}))
+                if self.websocket.open:
+                    yield from self.websocket.send(ejson.dumps({'msg': 'pong', 'id': msg.get('id')}))
                 
             elif msg.get('msg') == 'ready':
                 for sub in self.subs.values():
@@ -137,7 +139,7 @@ class DDPClient:
                 if sub:
                     sub.data[msg['id']] = msg['fields']
                     yield from sub.added_cb(sub, msg['id'], msg['fields'])
-                    
+
             elif msg.get('msg') == 'changed':
                 sub = self.subs.get(msg['collection'])
                 if sub:
